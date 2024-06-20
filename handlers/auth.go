@@ -1,9 +1,10 @@
 package handlers
 
 import (
-	"github.com/gin-gonic/gin"
 	"golang.org/x/oauth2"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 // AuthHandler holds necessary OAuth configuration and state
@@ -13,17 +14,25 @@ type AuthHandler struct {
 }
 
 // NewAuthHandler creates a new AuthHandler with provided configuration
-func NewAuthHandler(config *oauth2.Config, state string) *AuthHandler {
+func NewAuthHandler(clientID, clientSecret, state string) *AuthHandler {
 	return &AuthHandler{
-		OAuthConfig: config,
-		OAuthState:  state,
+		OAuthConfig: &oauth2.Config{
+			RedirectURL:  "http://localhost:8080/callback",
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			Scopes:       []string{"user-read-private", "user-read-email"},
+			Endpoint: oauth2.Endpoint{
+				AuthURL:  "https://accounts.spotify.com/authorize",
+				TokenURL: "https://accounts.spotify.com/api/token",
+			},
+		},
+		OAuthState: state,
 	}
 }
 
 // RedirectToSpotify redirects the user to Spotify's authorization page
 func (a *AuthHandler) RedirectToSpotify(c *gin.Context) {
-	state := a.OAuthState // You might want to generate a new state for each session
-	url := a.OAuthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline)
+	url := a.OAuthConfig.AuthCodeURL(a.OAuthState, oauth2.AccessTypeOffline)
 	c.Redirect(http.StatusTemporaryRedirect, url)
 }
 

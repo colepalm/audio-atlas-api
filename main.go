@@ -1,33 +1,30 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"os"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/oauth2"
 
 	"audio-atlas-api/handlers"
 )
 
-var (
-	oauthConf = &oauth2.Config{
-		RedirectURL:  "http://localhost:8080/callback",
-		ClientID:     "your-client-id",     // Replace with your actual client ID
-		ClientSecret: "your-client-secret", // Replace with your actual client secret
-		Scopes:       []string{"user-read-private", "user-read-email"},
-		Endpoint: oauth2.Endpoint{
-			AuthURL:  "https://accounts.spotify.com/authorize",
-			TokenURL: "https://accounts.spotify.com/api/token",
-		},
-	}
-	oauthStateString = generateStateString()
-)
+type Config struct {
+	SpotifyClientId     string `json:"spotifyClientId"`
+	SpotifyClientSecret string `json:"spotifyClientSecret"`
+}
 
 func main() {
+	config, err := loadConfig("config.json")
+	if err != nil {
+		fmt.Println("Error loading config:", err)
+		os.Exit(1)
+	}
+
 	router := gin.Default()
 
-	authHandler := handlers.NewAuthHandler(oauthConf, oauthStateString)
+	authHandler := handlers.NewAuthHandler(config.SpotifyClientId, config.SpotifyClientSecret, "state-string-here")
 
 	router.GET("/", authHandler.RedirectToSpotify)
 	router.GET("/callback", authHandler.HandleSpotifyCallback)
@@ -35,13 +32,20 @@ func main() {
 	_ = router.Run(":8080")
 }
 
-// generateStateString generates a secure random state string for OAuth CSRF protection
-func generateStateString() string {
-	b := make([]byte, 16)
-	_, err := rand.Read(b)
+func loadConfig(path string) (*Config, error) {
+	configFile, err := os.Open(path)
 	if err != nil {
-		// TODO: this doesnt need to panic
-		panic(err)
+		return nil, fmt.Errorf("failed to open config file: %w", err)
 	}
-	return base64.URLEncoding.EncodeToString(b)
+
+	defer func(configFile *os.File) {
+		_ = configFile.Close()
+	}(configFile)
+
+	var config Config
+	jsonParser := json.NewDecoder(configFile)
+	if err = jsonParser.Decode(&config); err != nil {
+		return nil, fmt.Errorf("failed to decode config file: %w", err)
+	}
+	return &config, nil
 }
