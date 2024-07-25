@@ -17,7 +17,7 @@ type AuthHandler struct {
 func NewAuthHandler(clientID, clientSecret, state string) *AuthHandler {
 	return &AuthHandler{
 		OAuthConfig: &oauth2.Config{
-			RedirectURL:  "http://localhost:8080/callback",
+			RedirectURL:  "http://localhost:9000/spotify-callback",
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
 			Scopes:       []string{"user-read-private", "user-read-email"},
