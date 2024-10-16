@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
 	"audio-atlas-api/handlers"
+	"audio-atlas-api/middleware"
 )
 
 type Config struct {
@@ -25,18 +25,11 @@ func main() {
 
 	router := gin.Default()
 
-	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:9000"},
-		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
-		AllowHeaders:     []string{"Origin"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-	}))
+	router.Use(middleware.CORSMiddleware())
 
 	authHandler := handlers.NewAuthHandler(config.SpotifyClientId, config.SpotifyClientSecret, "state-string-here")
 
-	router.GET("/", authHandler.RedirectToSpotify)
-	router.GET("/callback", authHandler.HandleSpotifyCallback)
+	router.POST("/api/spotify/token", authHandler.ExchangeCodeForToken)
 
 	_ = router.Run(":8080")
 }
