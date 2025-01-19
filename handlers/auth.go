@@ -21,7 +21,12 @@ func NewAuthHandler(clientID, clientSecret, state string) *AuthHandler {
 			RedirectURL:  "http://localhost:9000/spotify-callback",
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
-			Scopes:       []string{"user-read-private", "user-read-email", "playlist-modify-public"},
+			Scopes: []string{
+				"user-read-private",
+				"user-read-email",
+				"playlist-modify-public",
+				"playlist-modify-private",
+			},
 			Endpoint: oauth2.Endpoint{
 				AuthURL:  "https://accounts.spotify.com/authorize",
 				TokenURL: "https://accounts.spotify.com/api/token",
