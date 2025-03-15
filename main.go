@@ -17,9 +17,13 @@ type Config struct {
 }
 
 func main() {
-	config, err := loadConfig("config.json")
-	if err != nil {
-		fmt.Println("Error loading config:", err)
+	spotifyClientID := os.Getenv("SPOTIFY_CLIENT_ID")
+	spotifyClientSecret := os.Getenv("SPOTIFY_CLIENT_SECRET")
+	stateString := os.Getenv("STATE_STRING")
+
+	// Validate that required environment variables are set
+	if spotifyClientID == "" || spotifyClientSecret == "" {
+		fmt.Println("Error: Missing required environment variables")
 		os.Exit(1)
 	}
 
@@ -27,11 +31,19 @@ func main() {
 
 	router.Use(middleware.CORSMiddleware())
 
-	authHandler := handlers.NewAuthHandler(config.SpotifyClientId, config.SpotifyClientSecret, "state-string-here")
+	authHandler := handlers.NewAuthHandler(spotifyClientID, spotifyClientSecret, stateString)
 
 	router.POST("/api/spotify/token", authHandler.ExchangeCodeForToken)
 
-	_ = router.Run(":8080")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // Default port if not specified
+	}
+	err := router.Run(":" + port)
+	if err != nil {
+		fmt.Println("Error starting server:", err)
+		os.Exit(1)
+	}
 }
 
 func loadConfig(path string) (*Config, error) {
