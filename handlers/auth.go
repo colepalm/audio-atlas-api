@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"golang.org/x/oauth2"
+	"log"
 	"net/http"
 	"time"
 
@@ -50,6 +51,7 @@ func (a *AuthHandler) ExchangeCodeForToken(c *gin.Context) {
 	code := requestData.Code
 	token, err := a.OAuthConfig.Exchange(c, code)
 	if err != nil {
+		log.Printf("Token exchange failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to exchange token"})
 		return
 	}
