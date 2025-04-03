@@ -15,11 +15,10 @@ type AuthHandler struct {
 	OAuthState  string
 }
 
-// NewAuthHandler creates a new AuthHandler with provided configuration
-func NewAuthHandler(clientID, clientSecret, state string) *AuthHandler {
+func NewAuthHandler(clientID string, clientSecret string, state string, redirectURL string) *AuthHandler {
 	return &AuthHandler{
 		OAuthConfig: &oauth2.Config{
-			RedirectURL:  "http://localhost:9000/spotify-callback",
+			RedirectURL:  redirectURL,
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
 			Scopes: []string{

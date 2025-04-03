@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -11,18 +10,14 @@ import (
 	"audio-atlas-api/middleware"
 )
 
-type Config struct {
-	SpotifyClientId     string `json:"spotifyClientId"`
-	SpotifyClientSecret string `json:"spotifyClientSecret"`
-}
-
 func main() {
 	spotifyClientID := os.Getenv("SPOTIFY_CLIENT_ID")
 	spotifyClientSecret := os.Getenv("SPOTIFY_CLIENT_SECRET")
 	stateString := os.Getenv("STATE_STRING")
+	redirectURL := os.Getenv("SPOTIFY_REDIRECT_URL")
 
 	// Validate that required environment variables are set
-	if spotifyClientID == "" || spotifyClientSecret == "" {
+	if spotifyClientID == "" || spotifyClientSecret == "" || redirectURL == "" {
 		fmt.Println("Error: Missing required environment variables")
 		os.Exit(1)
 	}
@@ -31,7 +26,12 @@ func main() {
 
 	router.Use(middleware.CORSMiddleware())
 
-	authHandler := handlers.NewAuthHandler(spotifyClientID, spotifyClientSecret, stateString)
+	authHandler := handlers.NewAuthHandler(
+		spotifyClientID,
+		spotifyClientSecret,
+		stateString,
+		redirectURL,
+	)
 
 	router.POST("/api/spotify/token", authHandler.ExchangeCodeForToken)
 
@@ -44,22 +44,4 @@ func main() {
 		fmt.Println("Error starting server:", err)
 		os.Exit(1)
 	}
-}
-
-func loadConfig(path string) (*Config, error) {
-	configFile, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open config file: %w", err)
-	}
-
-	defer func(configFile *os.File) {
-		_ = configFile.Close()
-	}(configFile)
-
-	var config Config
-	jsonParser := json.NewDecoder(configFile)
-	if err = jsonParser.Decode(&config); err != nil {
-		return nil, fmt.Errorf("failed to decode config file: %w", err)
-	}
-	return &config, nil
 }
