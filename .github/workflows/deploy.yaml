@@ -11,9 +11,15 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Deploy to Heroku
-        uses: akhileshns/heroku-deploy@v3.13.15
+      - uses: actions/setup-node@v3
         with:
-          heroku_api_key: ${{secrets.HEROKU_API_KEY}}
-          heroku_app_name: "audio-atlas-api"
-          heroku_email: "your-email@example.com"
+          node-version: '18'
+
+      - name: Add Heroku remote and deploy
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: |
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name "GitHub Actions"
+          git remote add heroku https://heroku:${HEROKU_API_KEY}@git.heroku.com/audio-atlas-api.git
+          git push heroku HEAD:main --force
