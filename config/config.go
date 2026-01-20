@@ -12,9 +12,8 @@ type Config struct {
 	SpotifyRedirectURL  string
 	StateString         string
 
-	// Supabase
-	SupabaseURL        string
-	SupabaseServiceKey string
+	// Database
+	DatabaseURL string
 
 	// Server
 	Port string
@@ -26,8 +25,7 @@ func Load() (*Config, error) {
 		SpotifyClientSecret: os.Getenv("SPOTIFY_CLIENT_SECRET"),
 		SpotifyRedirectURL:  os.Getenv("SPOTIFY_REDIRECT_URL"),
 		StateString:         os.Getenv("STATE_STRING"),
-		SupabaseURL:         os.Getenv("SUPABASE_URL"),
-		SupabaseServiceKey:  os.Getenv("SUPABASE_SERVICE_KEY"),
+		DatabaseURL:         os.Getenv("DATABASE_URL"),
 		Port:                os.Getenv("PORT"),
 	}
 
@@ -46,11 +44,8 @@ func Load() (*Config, error) {
 	if cfg.SpotifyRedirectURL == "" {
 		return nil, fmt.Errorf("SPOTIFY_REDIRECT_URL is required")
 	}
-	if cfg.SupabaseURL == "" {
-		return nil, fmt.Errorf("SUPABASE_URL is required")
-	}
-	if cfg.SupabaseServiceKey == "" {
-		return nil, fmt.Errorf("SUPABASE_SERVICE_KEY is required")
+	if cfg.DatabaseURL == "" {
+		return nil, fmt.Errorf("DATABASE_URL is required")
 	}
 
 	return cfg, nil

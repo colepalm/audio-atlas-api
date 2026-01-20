@@ -15,9 +15,9 @@ func main() {
 		log.Fatal("Failed to load config:", err)
 	}
 
-	// Initialize Supabase
-	if err := database.InitSupabase(); err != nil {
-		log.Fatal("Failed to initialize Supabase:", err)
+	// Initialize Database
+	if err := database.InitDatabase(); err != nil {
+		log.Fatal("Failed to initialize database:", err)
 	}
 
 	// Setup routes
