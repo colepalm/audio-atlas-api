@@ -1,10 +1,11 @@
 package main
 
 import (
+	"audio-atlas-api/database"
 	"log"
 
 	"audio-atlas-api/config"
-	"audio-atlas-api/database"
+	//"audio-atlas-api/database"
 	"audio-atlas-api/routes"
 )
 
@@ -15,7 +16,7 @@ func main() {
 		log.Fatal("Failed to load config:", err)
 	}
 
-	// Initialize Database
+	//Initialize Database
 	if err := database.InitDatabase(); err != nil {
 		log.Fatal("Failed to initialize database:", err)
 	}

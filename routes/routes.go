@@ -1,10 +1,12 @@
 package routes
 
 import (
+	"audio-atlas-api/database"
+	"github.com/gin-gonic/gin"
+
 	"audio-atlas-api/config"
 	"audio-atlas-api/handlers"
 	"audio-atlas-api/middleware"
-	"github.com/gin-gonic/gin"
 )
 
 func SetupRoutes(cfg *config.Config) *gin.Engine {
@@ -21,6 +23,7 @@ func SetupRoutes(cfg *config.Config) *gin.Engine {
 		cfg.SpotifyRedirectURL,
 	)
 	healthHandler := handlers.NewHealthHandler()
+	artistHandler := handlers.NewArtistHandler(database.DB)
 
 	// Routes
 	api := router.Group("/api")
@@ -34,12 +37,12 @@ func SetupRoutes(cfg *config.Config) *gin.Engine {
 			spotify.POST("/token", authHandler.ExchangeCodeForToken)
 		}
 
-		// Artists
-		// artists := api.Group("/artists")
-		// {
-		//     artists.POST("/sync", artistHandler.Sync)
-		//     artists.GET("", artistHandler.GetUserArtists)
-		// }
+		//Artists
+		artists := api.Group("/artists")
+		{
+			artists.POST("/sync", artistHandler.Sync)
+			artists.GET("", artistHandler.GetUserArtists)
+		}
 	}
 
 	return router
