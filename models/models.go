@@ -84,12 +84,21 @@ type Playlist struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID
 	Name      string
-	IsPublic  bool
+	Source    string // manual, spotify, import
 	CreatedAt time.Time
 }
 
-type PlaylistArtist struct {
+type PlaylistTrack struct {
 	PlaylistID uuid.UUID
-	ArtistID   uuid.UUID
-	Order      int
+	TrackID    uuid.UUID
+	Position   int
+}
+
+type Track struct {
+	ID         uuid.UUID
+	Title      string
+	ArtistName string
+	ArtistID   *uuid.UUID
+	Source     string
+	ExternalID string
 }
