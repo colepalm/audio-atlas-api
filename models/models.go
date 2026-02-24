@@ -13,6 +13,17 @@ type User struct {
 	CreatedAt time.Time
 }
 
+type UserProvider struct {
+	ID             uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
+	UserID         uuid.UUID `gorm:"type:uuid;not null;index"`
+	Provider       string    `gorm:"not null"` // spotify, lastfm
+	ProviderUserID string    `gorm:"not null;index"`
+	AccessToken    string
+	RefreshToken   string
+	TokenExpiry    time.Time
+	CreatedAt      time.Time
+}
+
 type Artist struct {
 	ID             uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()"`
 	Name           string    `gorm:"not null"`
@@ -50,8 +61,9 @@ type Event struct {
 }
 
 type EventArtist struct {
-	EventID  uuid.UUID `gorm:"type:uuid;primaryKey"`
-	ArtistID uuid.UUID `gorm:"type:uuid;primaryKey"`
+	EventID   uuid.UUID `gorm:"type:uuid;primaryKey"`
+	ArtistID  uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Headliner bool
 }
 
 type UserEventRecommendation struct {
@@ -81,24 +93,50 @@ type SnapshotArtist struct {
 }
 
 type Playlist struct {
-	ID        uuid.UUID
-	UserID    uuid.UUID
-	Name      string
-	Source    string // manual, spotify, import
-	CreatedAt time.Time
+	ID         uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
+	UserID     uuid.UUID `gorm:"type:uuid;index;not null"`
+	Name       string    `gorm:"not null"`
+	Source     string    `gorm:"not null"` // spotify, manual, etc
+	ExternalID *string
+	CreatedAt  time.Time
+
+	User User `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 }
 
 type PlaylistTrack struct {
-	PlaylistID uuid.UUID
-	TrackID    uuid.UUID
-	Position   int
+	PlaylistID uuid.UUID `gorm:"primaryKey"`
+	TrackID    uuid.UUID `gorm:"primaryKey"`
+
+	Playlist Playlist `gorm:"foreignKey:PlaylistID;constraint:OnDelete:CASCADE"`
+	Track    Track    `gorm:"foreignKey:TrackID;constraint:OnDelete:CASCADE"`
+	AddedAt  time.Time
 }
 
 type Track struct {
-	ID         uuid.UUID
-	Title      string
-	ArtistName string
-	ArtistID   *uuid.UUID
-	Source     string
-	ExternalID string
+	ID            uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
+	Name          string    `gorm:"not null"`
+	Normalized    string    `gorm:"index"`
+	ArtistID      uuid.UUID
+	MusicbrainzID *string
+	CreatedAt     time.Time
+}
+
+type TrackArtist struct {
+	TrackID  uuid.UUID `gorm:"primaryKey"`
+	ArtistID uuid.UUID `gorm:"primaryKey"`
+
+	Track  Track  `gorm:"foreignKey:TrackID;constraint:OnDelete:CASCADE"`
+	Artist Artist `gorm:"foreignKey:ArtistID;constraint:OnDelete:CASCADE"`
+}
+
+type UserTrackEvent struct {
+	ID      uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
+	UserID  uuid.UUID `gorm:"type:uuid;index;not null"`
+	TrackID uuid.UUID `gorm:"type:uuid;index;not null"`
+
+	Type   string  `gorm:"not null"` // playlist_add, liked, play, import
+	Source string  `gorm:"not null"` // manual, spotify, csv
+	Weight float64 `gorm:"default:1"`
+
+	CreatedAt time.Time
 }

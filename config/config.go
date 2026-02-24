@@ -17,6 +17,8 @@ type Config struct {
 
 	// Server
 	Port string
+
+	JWTSecret string
 }
 
 func Load() (*Config, error) {
