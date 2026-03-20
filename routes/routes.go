@@ -1,11 +1,14 @@
 package routes
 
 import (
-	"audio-atlas-api/database"
+	"audio-atlas-api/handlers/providers"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/oauth2"
 
 	"audio-atlas-api/config"
+	"audio-atlas-api/database"
 	"audio-atlas-api/handlers"
+	authHandler "audio-atlas-api/handlers/auth"
 	"audio-atlas-api/middleware"
 )
 
@@ -15,14 +18,24 @@ func SetupRoutes(cfg *config.Config) *gin.Engine {
 	router.Use(middleware.CORSMiddleware())
 
 	// Handlers
-	authHandler := handlers.NewAuthHandler(
-		cfg.SpotifyClientID,
-		cfg.SpotifyClientSecret,
-		cfg.StateString,
-		cfg.SpotifyRedirectURL,
+	auth := authHandler.NewHandler(database.DB, cfg.JWTSecret)
+	spotifyHandler := providers.NewSpotifyHandler(
+		&oauth2.Config{
+			RedirectURL:  cfg.SpotifyRedirectURL,
+			ClientID:     cfg.SpotifyClientID,
+			ClientSecret: cfg.SpotifyClientSecret,
+			Scopes: []string{
+				"user-top-read",
+				"user-read-email",
+			},
+			Endpoint: oauth2.Endpoint{
+				AuthURL:  "https://accounts.spotify.com/authorize",
+				TokenURL: "https://accounts.spotify.com/api/token",
+			},
+		},
 		database.DB,
-		cfg.JWTSecret,
 	)
+
 	healthHandler := handlers.NewHealthHandler()
 	artistHandler := handlers.NewArtistHandler(database.DB)
 	playlistHandler := handlers.NewPlaylistHandler(database.DB)
@@ -37,10 +50,20 @@ func SetupRoutes(cfg *config.Config) *gin.Engine {
 		// =====================
 		// AUTH
 		// =====================
-		auth := api.Group("/auth")
+		authRoutes := api.Group("/auth")
 		{
-			auth.POST("/spotify/token", authHandler.ExchangeCodeForToken)
-			auth.GET("/me", middleware.RequireAuth(), authHandler.Me)
+			authRoutes.POST("/register", auth.Register)
+			authRoutes.POST("/login", auth.Login)
+		}
+
+		providersGroup := api.Group("/providers")
+		providersGroup.Use(authMiddleware)
+		{
+			spotify := providersGroup.Group("/spotify")
+			{
+				spotify.GET("/connect", spotifyHandler.Connect)
+				spotify.GET("/callback", spotifyHandler.Callback)
+			}
 		}
 
 		// =====================

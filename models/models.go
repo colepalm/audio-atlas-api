@@ -7,10 +7,11 @@ import (
 )
 
 type User struct {
-	ID        uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()"`
-	Email     string    `gorm:"uniqueIndex;not null"`
-	Location  string
-	CreatedAt time.Time
+	ID           uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
+	Email        string    `gorm:"uniqueIndex;not null"`
+	PasswordHash string    `gorm:"not null"`
+	Location     string
+	CreatedAt    time.Time
 }
 
 type UserProvider struct {
@@ -22,6 +23,20 @@ type UserProvider struct {
 	RefreshToken   string
 	TokenExpiry    time.Time
 	CreatedAt      time.Time
+}
+
+type ProviderAccount struct {
+	ID     uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
+	UserID uuid.UUID `gorm:"index;not null"`
+
+	Provider       string `gorm:"index:idx_provider_user,unique"`
+	ProviderUserID string `gorm:"index:idx_provider_user,unique"`
+
+	AccessToken  string
+	RefreshToken string
+	Expiry       time.Time
+
+	CreatedAt time.Time
 }
 
 type Artist struct {
