@@ -8,9 +8,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var jwtSecret = []byte("super-secret-key") // move to config/env
-
-func RequireAuth() gin.HandlerFunc {
+func RequireAuth(jwtSecret []byte) gin.HandlerFunc {
 	return func(c *gin.Context) {
 
 		authHeader := c.GetHeader("Authorization")
@@ -21,9 +19,19 @@ func RequireAuth() gin.HandlerFunc {
 			return
 		}
 
+		if !strings.HasPrefix(authHeader, "Bearer ") {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Invalid authorization format",
+			})
+			return
+		}
+
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, jwt.ErrTokenInvalidClaims
+			}
 			return jwtSecret, nil
 		})
 
@@ -42,11 +50,23 @@ func RequireAuth() gin.HandlerFunc {
 			return
 		}
 
-		userID := claims["user_id"].(string)
+		userIDRaw, ok := claims["user_id"]
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Missing user_id in token",
+			})
+			return
+		}
 
-		// Attach user to context
+		userID, ok := userIDRaw.(string)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Invalid user_id format",
+			})
+			return
+		}
+
 		c.Set("userID", userID)
-
 		c.Next()
 	}
 }

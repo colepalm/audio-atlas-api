@@ -41,7 +41,7 @@ func SetupRoutes(cfg *config.Config) *gin.Engine {
 	playlistHandler := handlers.NewPlaylistHandler(database.DB)
 	concertHandler := handlers.NewConcertHandler(database.DB)
 
-	authMiddleware := middleware.RequireAuth()
+	authMiddleware := middleware.RequireAuth([]byte(cfg.JWTSecret))
 
 	api := router.Group("/api/v1")
 	{
@@ -54,6 +54,8 @@ func SetupRoutes(cfg *config.Config) *gin.Engine {
 		{
 			authRoutes.POST("/register", auth.Register)
 			authRoutes.POST("/login", auth.Login)
+
+			authRoutes.GET("/me", authMiddleware, auth.Me)
 		}
 
 		providersGroup := api.Group("/providers")

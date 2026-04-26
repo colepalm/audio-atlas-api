@@ -29,6 +29,7 @@ func Load() (*Config, error) {
 		StateString:         os.Getenv("STATE_STRING"),
 		DatabaseURL:         os.Getenv("DATABASE_URL"),
 		Port:                os.Getenv("PORT"),
+		JWTSecret:           os.Getenv("JWT_SECRET"),
 	}
 
 	// Set defaults
@@ -48,6 +49,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
+	}
+	if cfg.JWTSecret == "" {
+		return nil, fmt.Errorf("JWT_SECRET is required")
 	}
 
 	return cfg, nil
