@@ -95,8 +95,8 @@ func (h *PlaylistHandler) AddTracks(c *gin.Context) {
 
 	var body struct {
 		Tracks []struct {
-			Name   string `json:"name" binding:"required"`
-			Artist string `json:"artist" binding:"required"`
+			Name    string   `json:"name" binding:"required"`
+			Artists []string `json:"artists" binding:"required"` // was: Artist string
 		} `json:"tracks" binding:"required"`
 	}
 
@@ -109,37 +109,70 @@ func (h *PlaylistHandler) AddTracks(c *gin.Context) {
 
 	for _, t := range body.Tracks {
 
-		// Upsert artist
-		var artist models.Artist
-		tx.Where("normalized_name = ?", normalize(t.Artist)).
-			FirstOrCreate(&artist, models.Artist{
-				Name:           t.Artist,
-				NormalizedName: normalize(t.Artist),
-			})
+		// Upsert each artist and collect them
+		var artists []models.Artist
+		for _, artistName := range t.Artists {
+			var artist models.Artist
+			if err := tx.Where("normalized_name = ?", normalize(artistName)).
+				FirstOrCreate(&artist, models.Artist{
+					Name:           artistName,
+					NormalizedName: normalize(artistName),
+				}).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upsert artist"})
+				return
+			}
+			artists = append(artists, artist)
+		}
 
-		// Upsert track
+		// Upsert track — no longer keyed on artist_id, use normalized name only
 		var track models.Track
-		tx.Where("name = ? AND artist_id = ?", t.Name, artist.ID).
+		if err := tx.Where("normalized = ?", normalize(t.Name)).
 			FirstOrCreate(&track, models.Track{
-				Name:     t.Name,
-				ArtistID: artist.ID,
-			})
+				Name:       t.Name,
+				Normalized: normalize(t.Name),
+			}).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upsert track"})
+			return
+		}
+
+		// Upsert TrackArtist join rows for each artist
+		for _, artist := range artists {
+			if err := tx.Where(models.TrackArtist{TrackID: track.ID, ArtistID: artist.ID}).
+				FirstOrCreate(&models.TrackArtist{
+					TrackID:  track.ID,
+					ArtistID: artist.ID,
+				}).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to link track to artist"})
+				return
+			}
+		}
 
 		// Add to playlist
-		tx.Create(&models.PlaylistTrack{
+		if err := tx.Create(&models.PlaylistTrack{
 			PlaylistID: uuid.MustParse(playlistID),
 			TrackID:    track.ID,
 			AddedAt:    time.Now(),
-		})
+		}).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add track to playlist"})
+			return
+		}
 
 		// Emit taste signal
-		tx.Create(&models.UserTrackEvent{
+		if err := tx.Create(&models.UserTrackEvent{
 			UserID:  userID,
 			TrackID: track.ID,
 			Type:    "playlist_add",
 			Source:  "manual",
 			Weight:  1,
-		})
+		}).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record taste event"})
+			return
+		}
 	}
 
 	if err := tx.Commit().Error; err != nil {

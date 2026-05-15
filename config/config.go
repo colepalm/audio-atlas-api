@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"golang.org/x/oauth2"
 	"os"
 )
 
@@ -55,4 +56,17 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func (c *Config) SpotifyOAuthConfig() *oauth2.Config {
+	return &oauth2.Config{
+		RedirectURL:  c.SpotifyRedirectURL,
+		ClientID:     c.SpotifyClientID,
+		ClientSecret: c.SpotifyClientSecret,
+		Scopes:       []string{"user-top-read", "user-read-email"},
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  "https://accounts.spotify.com/authorize",
+			TokenURL: "https://accounts.spotify.com/api/token",
+		},
+	}
 }
