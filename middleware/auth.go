@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"github.com/google/uuid"
 	"net/http"
 	"strings"
 
@@ -58,8 +59,16 @@ func RequireAuth(jwtSecret []byte) gin.HandlerFunc {
 			return
 		}
 
-		userID, ok := userIDRaw.(string)
+		userIDStr, ok := userIDRaw.(string)
 		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Invalid user_id format",
+			})
+			return
+		}
+
+		userID, err := uuid.Parse(userIDStr)
+		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error": "Invalid user_id format",
 			})
