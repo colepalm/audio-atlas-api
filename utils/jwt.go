@@ -10,9 +10,18 @@ import (
 func GenerateJWT(userID uuid.UUID, secret []byte) (string, error) {
 	claims := jwt.MapClaims{
 		"user_id": userID.String(),
-		"exp":     time.Now().Add(7 * 24 * time.Hour).Unix(),
+		"exp":     time.Now().Add(15 * time.Minute).Unix(),
 	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(secret)
+}
 
+func GenerateRefreshToken(userID uuid.UUID, secret []byte) (string, error) {
+	claims := jwt.MapClaims{
+		"user_id": userID.String(),
+		"exp":     time.Now().Add(30 * 24 * time.Hour).Unix(),
+		"type":    "refresh",
+	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(secret)
 }

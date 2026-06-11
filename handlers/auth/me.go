@@ -18,28 +18,14 @@ type MeResponse struct {
 }
 
 func (h *Handler) Me(c *gin.Context) {
-	// Get userID from context
-	userIDRaw, exists := c.Get("userID")
+	userID, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	userIDStr, ok := userIDRaw.(string)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user context"})
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
-		return
-	}
-
-	// Fetch user
 	var user models.User
-	if err := h.DB.First(&user, "id = ?", userID).Error; err != nil {
+	if err := h.DB.First(&user, "id = ?", userID.(uuid.UUID)).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}

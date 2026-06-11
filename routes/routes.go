@@ -37,6 +37,8 @@ func SetupRoutes(cfg *config.Config) *gin.Engine {
 		{
 			authRoutes.POST("/register", auth.Register)
 			authRoutes.POST("/login", auth.Login)
+			authRoutes.POST("/refresh", auth.Refresh)
+
 		}
 
 		me := api.Group("/me")

@@ -8,9 +8,9 @@ import (
 
 type User struct {
 	ID           uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
-	Username     string    `gorm:"uniqueIndex;not null"`
 	Email        string    `gorm:"uniqueIndex;not null"`
 	PasswordHash string    `gorm:"not null"`
+	Username     *string   `gorm:"uniqueIndex"` // pointer = nullable
 	Location     string
 	CreatedAt    time.Time
 }
@@ -174,4 +174,14 @@ type DataImport struct {
 	Status      string    // pending, processing, complete, failed
 	RecordCount int
 	CreatedAt   time.Time
+}
+
+type RefreshToken struct {
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
+	UserID    uuid.UUID `gorm:"type:uuid;not null;index"`
+	TokenHash string    `gorm:"not null"` // store hashed, not raw
+	ExpiresAt time.Time `gorm:"not null"`
+	CreatedAt time.Time
+
+	User User `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 }

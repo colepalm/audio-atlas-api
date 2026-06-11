@@ -1,7 +1,10 @@
 package auth
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -32,14 +35,29 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	token, err := utils.GenerateJWT(user.ID, h.JWTSecret)
+	accessToken, err := utils.GenerateJWT(user.ID, h.JWTSecret)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Token generation failed"})
 		return
 	}
 
+	refreshToken, err := utils.GenerateRefreshToken(user.ID, h.JWTSecret)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Token generation failed"})
+		return
+	}
+
+	// Hash before storing so a DB leak doesn't expose valid tokens
+	hash := sha256.Sum256([]byte(refreshToken))
+	h.DB.Create(&models.RefreshToken{
+		UserID:    user.ID,
+		TokenHash: hex.EncodeToString(hash[:]),
+		ExpiresAt: time.Now().Add(30 * 24 * time.Hour),
+	})
+
 	c.JSON(http.StatusOK, gin.H{
-		"token": token,
-		"user":  user,
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"user":          user,
 	})
 }

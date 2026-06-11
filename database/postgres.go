@@ -6,6 +6,8 @@ import (
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"audio-atlas-api/models"
 )
 
 var DB *gorm.DB
@@ -41,5 +43,29 @@ func InitDatabase() error {
 	}
 
 	fmt.Println("Successfully connected to database!")
+
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.ProviderAccount{},
+		&models.Artist{},
+		&models.ArtistGenre{},
+		&models.UserArtist{},
+		&models.Track{},
+		&models.TrackArtist{},
+		&models.Playlist{},
+		&models.PlaylistTrack{},
+		&models.ListeningSnapshot{},
+		&models.SnapshotArtist{},
+		&models.SnapshotTrack{},
+		&models.Event{},
+		&models.EventArtist{},
+		&models.UserEventRecommendation{},
+		&models.UserTrackEvent{},
+		&models.RefreshToken{},
+	); err != nil {
+		return fmt.Errorf("failed to migrate database: %w", err)
+	}
+
+	fmt.Println("Database migrated successfully!")
 	return nil
 }
