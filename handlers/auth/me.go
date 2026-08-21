@@ -11,29 +11,31 @@ import (
 )
 
 type MeResponse struct {
-	ID        uuid.UUID `json:"id"`
-	Email     string    `json:"email"`
-	Location  string    `json:"location"`
-	CreatedAt time.Time `json:"created_at"`
+	ID               uuid.UUID `json:"id"`
+	Email            string    `json:"email"`
+	Location         string    `json:"location"`
+	CreatedAt        time.Time `json:"created_at"`
+	SpotifyConnected bool      `json:"spotify_connected"`
 }
 
 func (h *Handler) Me(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
+	userID := c.MustGet("userID").(uuid.UUID)
 
 	var user models.User
-	if err := h.DB.First(&user, "id = ?", userID.(uuid.UUID)).Error; err != nil {
+	if err := h.DB.First(&user, "id = ?", userID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 
+	var providerAccount models.ProviderAccount
+	spotifyConnected := h.DB.Where("user_id = ? AND provider = ?", userID, "spotify").
+		First(&providerAccount).Error == nil
+
 	c.JSON(http.StatusOK, MeResponse{
-		ID:        user.ID,
-		Email:     user.Email,
-		Location:  user.Location,
-		CreatedAt: user.CreatedAt,
+		ID:               user.ID,
+		Email:            user.Email,
+		Location:         user.Location,
+		CreatedAt:        user.CreatedAt,
+		SpotifyConnected: spotifyConnected,
 	})
 }
