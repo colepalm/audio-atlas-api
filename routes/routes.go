@@ -23,6 +23,7 @@ func SetupRoutes(cfg *config.Config) *gin.Engine {
 	artistHandler := handlers.NewArtistHandler(database.DB)
 	playlistHandler := handlers.NewPlaylistHandler(database.DB)
 	concertHandler := handlers.NewConcertHandler(database.DB)
+	tasteHandler := handlers.NewTasteHandler(database.DB)
 
 	authMiddleware := middleware.RequireAuth([]byte(cfg.JWTSecret))
 
@@ -45,6 +46,13 @@ func SetupRoutes(cfg *config.Config) *gin.Engine {
 		me.Use(authMiddleware)
 		{
 			me.GET("", auth.Me)
+			me.GET("/recently-played", tasteHandler.RecentlyPlayed)  // reads from ListeningSnapshot/UserTrackEvent
+			me.GET("/player/current", tasteHandler.NowPlaying)       // reads from your DB
+			me.GET("/playlists", playlistHandler.List)               // already exists!
+			me.GET("/recommendations", tasteHandler.Recommendations) // based on UserArtist/genres
+			me.GET("/top/artists", tasteHandler.TopArtists)          // reads from UserArtist
+			me.GET("/top/tracks", tasteHandler.TopTracks)            // reads from SnapshotTrack
+			me.GET("/new-releases", tasteHandler.NewReleases)        // from Event/external source
 			// TODO: me.PUT("", userHandler.Update)
 			// TODO: me.GET("/stats", statsHandler.Get)
 		}

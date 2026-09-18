@@ -120,7 +120,8 @@ type Playlist struct {
 	ExternalID *string
 	CreatedAt  time.Time
 
-	User User `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	User   User    `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	Tracks []Track `gorm:"many2many:playlist_tracks;"`
 }
 
 type PlaylistTrack struct {

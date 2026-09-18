@@ -1,14 +1,16 @@
 package handlers
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"gorm.io/gorm"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+
 	"audio-atlas-api/models"
+	"audio-atlas-api/utils"
 )
 
 type PlaylistHandler struct {
@@ -34,6 +36,7 @@ func (h *PlaylistHandler) Create(c *gin.Context) {
 	playlist := models.Playlist{
 		UserID: userID,
 		Name:   body.Name,
+		Source: "manual",
 	}
 
 	if err := h.DB.Create(&playlist).Error; err != nil {
@@ -47,18 +50,28 @@ func (h *PlaylistHandler) Create(c *gin.Context) {
 func (h *PlaylistHandler) List(c *gin.Context) {
 	userID := c.MustGet("userID").(uuid.UUID)
 
-	var playlists []models.Playlist
+	type Result struct {
+		ID         uuid.UUID `json:"id"`
+		Name       string    `json:"name"`
+		Source     string    `json:"source"`
+		TrackCount int64     `json:"trackCount"`
+		CreatedAt  time.Time `json:"createdAt"`
+	}
 
-	if err := h.DB.
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
-		Find(&playlists).Error; err != nil {
+	results := make([]Result, 0)
 
+	if err := h.DB.Table("playlists").
+		Select("playlists.id, playlists.name, playlists.source, playlists.created_at, COUNT(playlist_tracks.track_id) as track_count").
+		Joins("LEFT JOIN playlist_tracks ON playlist_tracks.playlist_id = playlists.id").
+		Where("playlists.user_id = ?", userID).
+		Group("playlists.id").
+		Order("playlists.created_at DESC").
+		Scan(&results).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch playlists"})
 		return
 	}
 
-	c.JSON(http.StatusOK, playlists)
+	utils.RespondList(c, results)
 }
 
 func (h *PlaylistHandler) Get(c *gin.Context) {
@@ -66,24 +79,58 @@ func (h *PlaylistHandler) Get(c *gin.Context) {
 	playlistID := c.Param("id")
 
 	var playlist models.Playlist
-
 	if err := h.DB.
 		Where("id = ? AND user_id = ?", playlistID, userID).
 		First(&playlist).Error; err != nil {
-
 		c.JSON(http.StatusNotFound, gin.H{"error": "Playlist not found"})
 		return
 	}
 
-	var tracks []models.Track
+	type ArtistResult struct {
+		ID   uuid.UUID `json:"id"`
+		Name string    `json:"name"`
+	}
 
-	h.DB.
+	type TrackResult struct {
+		ID      uuid.UUID      `json:"id"`
+		Name    string         `json:"name"`
+		AddedAt time.Time      `json:"addedAt"`
+		Artists []ArtistResult `json:"artists"`
+	}
+
+	type RawTrack struct {
+		ID      uuid.UUID `json:"id"`
+		Name    string    `json:"name"`
+		AddedAt time.Time `json:"addedAt"`
+	}
+
+	rawTracks := make([]RawTrack, 0)
+
+	h.DB.Table("tracks").
+		Select("tracks.id, tracks.name, playlist_tracks.added_at").
 		Joins("JOIN playlist_tracks ON playlist_tracks.track_id = tracks.id").
 		Where("playlist_tracks.playlist_id = ?", playlistID).
-		Order("playlist_tracks.position ASC").
-		Find(&tracks)
+		Order("playlist_tracks.added_at ASC").
+		Scan(&rawTracks)
 
-	c.JSON(http.StatusOK, gin.H{
+	tracks := make([]TrackResult, 0)
+	for _, t := range rawTracks {
+		artists := make([]ArtistResult, 0)
+		h.DB.Table("artists").
+			Select("artists.id, artists.name").
+			Joins("JOIN track_artists ON track_artists.artist_id = artists.id").
+			Where("track_artists.track_id = ?", t.ID).
+			Scan(&artists)
+
+		tracks = append(tracks, TrackResult{
+			ID:      t.ID,
+			Name:    t.Name,
+			AddedAt: t.AddedAt,
+			Artists: artists,
+		})
+	}
+
+	utils.RespondOne(c, gin.H{
 		"playlist": playlist,
 		"tracks":   tracks,
 	})
@@ -96,7 +143,7 @@ func (h *PlaylistHandler) AddTracks(c *gin.Context) {
 	var body struct {
 		Tracks []struct {
 			Name    string   `json:"name" binding:"required"`
-			Artists []string `json:"artists" binding:"required"` // was: Artist string
+			Artists []string `json:"artists" binding:"required"`
 		} `json:"tracks" binding:"required"`
 	}
 
@@ -108,8 +155,6 @@ func (h *PlaylistHandler) AddTracks(c *gin.Context) {
 	tx := h.DB.Begin()
 
 	for _, t := range body.Tracks {
-
-		// Upsert each artist and collect them
 		var artists []models.Artist
 		for _, artistName := range t.Artists {
 			var artist models.Artist
@@ -125,7 +170,6 @@ func (h *PlaylistHandler) AddTracks(c *gin.Context) {
 			artists = append(artists, artist)
 		}
 
-		// Upsert track — no longer keyed on artist_id, use normalized name only
 		var track models.Track
 		if err := tx.Where("normalized = ?", normalize(t.Name)).
 			FirstOrCreate(&track, models.Track{
@@ -137,7 +181,6 @@ func (h *PlaylistHandler) AddTracks(c *gin.Context) {
 			return
 		}
 
-		// Upsert TrackArtist join rows for each artist
 		for _, artist := range artists {
 			if err := tx.Where(models.TrackArtist{TrackID: track.ID, ArtistID: artist.ID}).
 				FirstOrCreate(&models.TrackArtist{
@@ -150,7 +193,6 @@ func (h *PlaylistHandler) AddTracks(c *gin.Context) {
 			}
 		}
 
-		// Add to playlist
 		if err := tx.Create(&models.PlaylistTrack{
 			PlaylistID: uuid.MustParse(playlistID),
 			TrackID:    track.ID,
@@ -161,7 +203,6 @@ func (h *PlaylistHandler) AddTracks(c *gin.Context) {
 			return
 		}
 
-		// Emit taste signal
 		if err := tx.Create(&models.UserTrackEvent{
 			UserID:  userID,
 			TrackID: track.ID,
@@ -191,7 +232,6 @@ func (h *PlaylistHandler) Delete(c *gin.Context) {
 	if err := h.DB.
 		Where("id = ? AND user_id = ?", playlistID, userID).
 		Delete(&models.Playlist{}).Error; err != nil {
-
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete playlist"})
 		return
 	}
