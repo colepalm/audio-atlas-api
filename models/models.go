@@ -17,7 +17,7 @@ type User struct {
 
 type ProviderAccount struct {
 	ID     uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
-	UserID uuid.UUID `gorm:"index;not null"`
+	UserID uuid.UUID `gorm:"type:uuid;index;not null"`
 
 	Provider       string `gorm:"index:idx_provider_user,unique"`
 	ProviderUserID string `gorm:"index:idx_provider_user,unique"`
@@ -40,7 +40,7 @@ type Artist struct {
 }
 
 type ArtistGenre struct {
-	ArtistID uuid.UUID `gorm:"primaryKey"`
+	ArtistID uuid.UUID `gorm:"type:uuid;primaryKey"`
 	Genre    string    `gorm:"primaryKey"`
 	Source   string    // spotify, musicbrainz, manual
 }
@@ -125,8 +125,8 @@ type Playlist struct {
 }
 
 type PlaylistTrack struct {
-	PlaylistID uuid.UUID `gorm:"primaryKey"`
-	TrackID    uuid.UUID `gorm:"primaryKey"`
+	PlaylistID uuid.UUID `gorm:"type:uuid;primaryKey"`
+	TrackID    uuid.UUID `gorm:"type:uuid;primaryKey"`
 
 	Playlist Playlist `gorm:"foreignKey:PlaylistID;constraint:OnDelete:CASCADE"`
 	Track    Track    `gorm:"foreignKey:TrackID;constraint:OnDelete:CASCADE"`
@@ -144,8 +144,8 @@ type Track struct {
 }
 
 type TrackArtist struct {
-	TrackID  uuid.UUID `gorm:"primaryKey"`
-	ArtistID uuid.UUID `gorm:"primaryKey"`
+	TrackID  uuid.UUID `gorm:"type:uuid;primaryKey"`
+	ArtistID uuid.UUID `gorm:"type:uuid;primaryKey"`
 }
 
 type UserTrackEvent struct {

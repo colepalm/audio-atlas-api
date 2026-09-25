@@ -17,7 +17,7 @@ func SetupRoutes(cfg *config.Config) *gin.Engine {
 
 	// Handlers
 	auth := authHandler.NewHandler(database.DB, cfg.JWTSecret)
-	spotifyHandler := providers.NewSpotifyHandler(cfg.SpotifyOAuthConfig(), database.DB)
+	spotifyHandler := providers.NewSpotifyHandler(cfg.SpotifyOAuthConfig(), database.DB, cfg.FrontendURL)
 
 	healthHandler := handlers.NewHealthHandler()
 	artistHandler := handlers.NewArtistHandler(database.DB)

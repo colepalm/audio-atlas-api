@@ -20,6 +20,8 @@ type Config struct {
 	Port string
 
 	JWTSecret string
+
+	FrontendURL string
 }
 
 func Load() (*Config, error) {
@@ -31,6 +33,7 @@ func Load() (*Config, error) {
 		DatabaseURL:         os.Getenv("DATABASE_URL"),
 		Port:                os.Getenv("PORT"),
 		JWTSecret:           os.Getenv("JWT_SECRET"),
+		FrontendURL:         os.Getenv("FRONTEND_URL"),
 	}
 
 	// Set defaults
@@ -63,7 +66,12 @@ func (c *Config) SpotifyOAuthConfig() *oauth2.Config {
 		RedirectURL:  c.SpotifyRedirectURL,
 		ClientID:     c.SpotifyClientID,
 		ClientSecret: c.SpotifyClientSecret,
-		Scopes:       []string{"user-top-read", "user-read-email"},
+		Scopes: []string{
+			"user-top-read",
+			"user-read-email",
+			"user-read-recently-played",
+			"playlist-read-private",
+		},
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://accounts.spotify.com/authorize",
 			TokenURL: "https://accounts.spotify.com/api/token",
