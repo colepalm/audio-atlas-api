@@ -219,9 +219,10 @@ func (s *SyncService) syncPlaylistTracks(playlistID uuid.UUID, spotifyPlaylistID
 				Name:       item.Track.Name,
 				Normalized: normalized,
 			}
-			if err := s.DB.
-				Where("normalized = ?", normalized).
-				FirstOrCreate(&track).Error; err != nil {
+			if err := s.DB.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "normalized"}},
+				DoUpdates: clause.AssignmentColumns([]string{"name"}),
+			}).Create(&track).Error; err != nil {
 				return err
 			}
 
