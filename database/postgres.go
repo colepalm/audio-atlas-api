@@ -61,6 +61,7 @@ func InitDatabase() error {
 		&models.EventArtist{},
 		&models.UserEventRecommendation{},
 		&models.UserTrackEvent{},
+		&models.ExternalID{},
 		&models.RefreshToken{},
 	); err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)

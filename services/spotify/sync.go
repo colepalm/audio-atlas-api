@@ -14,12 +14,22 @@ import (
 	"gorm.io/gorm/clause"
 
 	"audio-atlas-api/models"
+	"audio-atlas-api/services/ingest"
 )
 
+type SpotifyArtist struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// SyncService fetches a user's Spotify data and hands it to the provider-neutral
+// importer. It never writes artists or tracks directly.
 type SyncService struct {
 	DB          *gorm.DB
 	AccessToken string
 	UserID      uuid.UUID
+
+	imp *ingest.Importer
 }
 
 func NewSyncService(db *gorm.DB, userID uuid.UUID, accessToken string) *SyncService {
@@ -27,6 +37,7 @@ func NewSyncService(db *gorm.DB, userID uuid.UUID, accessToken string) *SyncServ
 		DB:          db,
 		AccessToken: accessToken,
 		UserID:      userID,
+		imp:         ingest.NewImporter(db, "spotify"),
 	}
 }
 
@@ -46,11 +57,20 @@ func (s *SyncService) Run() {
 	log.Printf("[SpotifySync] Sync complete for user %s", s.UserID)
 }
 
+// toIngestTrack maps Spotify's shape onto the neutral one.
+func toIngestTrack(id, name string, artists []SpotifyArtist) ingest.Track {
+	t := ingest.Track{Title: name, ExternalID: id}
+	for _, a := range artists {
+		t.Artists = append(t.Artists, ingest.Artist{Name: a.Name, ExternalID: a.ID})
+	}
+	return t
+}
+
 // ------------------------------------------------------------------
 // Top Artists
 // ------------------------------------------------------------------
 func (s *SyncService) syncTopArtists() error {
-	type SpotifyArtist struct {
+	type TopArtist struct {
 		ID         string   `json:"id"`
 		Name       string   `json:"name"`
 		Genres     []string `json:"genres"`
@@ -58,7 +78,7 @@ func (s *SyncService) syncTopArtists() error {
 	}
 
 	type Response struct {
-		Items []SpotifyArtist `json:"items"`
+		Items []TopArtist `json:"items"`
 	}
 
 	for _, timeRange := range []string{"short_term", "medium_term", "long_term"} {
@@ -78,17 +98,8 @@ func (s *SyncService) syncTopArtists() error {
 		}
 
 		for rank, item := range res.Items {
-			normalized := normalize(item.Name)
-
-			artist := models.Artist{
-				Name:           item.Name,
-				NormalizedName: normalized,
-				SpotifyID:      &item.ID,
-			}
-			if err := s.DB.
-				Where("normalized_name = ?", normalized).
-				Assign(models.Artist{SpotifyID: &item.ID}).
-				FirstOrCreate(&artist).Error; err != nil {
+			artistID, err := s.imp.ImportArtist(ingest.Artist{Name: item.Name, ExternalID: item.ID})
+			if err != nil {
 				return err
 			}
 
@@ -96,19 +107,18 @@ func (s *SyncService) syncTopArtists() error {
 			for _, genre := range item.Genres {
 				s.DB.Clauses(clause.OnConflict{DoNothing: true}).
 					Create(&models.ArtistGenre{
-						ArtistID: artist.ID,
+						ArtistID: artistID,
 						Genre:    genre,
 						Source:   "spotify",
 					})
 			}
 
-			// Upsert UserArtist
 			s.DB.Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "user_id"}, {Name: "artist_id"}},
 				DoUpdates: clause.AssignmentColumns([]string{"play_count", "last_synced"}),
 			}).Create(&models.UserArtist{
 				UserID:     s.UserID,
-				ArtistID:   artist.ID,
+				ArtistID:   artistID,
 				Source:     "spotify",
 				PlayCount:  item.Popularity,
 				LastSynced: time.Now(),
@@ -118,7 +128,7 @@ func (s *SyncService) syncTopArtists() error {
 			s.DB.Clauses(clause.OnConflict{DoNothing: true}).
 				Create(&models.SnapshotArtist{
 					SnapshotID: snapshot.ID,
-					ArtistID:   artist.ID,
+					ArtistID:   artistID,
 					Rank:       rank + 1,
 					PlayCount:  item.Popularity,
 				})
@@ -170,31 +180,22 @@ func (s *SyncService) syncPlaylists() error {
 			}
 		}
 
-		if res.Next != nil {
-			path = strings.TrimPrefix(*res.Next, "https://api.spotify.com/v1")
-		} else {
-			path = ""
-		}
+		path = s.nextPath(res.Next)
 	}
 
 	return nil
 }
 
 func (s *SyncService) syncPlaylistTracks(playlistID uuid.UUID, spotifyPlaylistID string) error {
-	type SpotifyArtist struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}
-
-	type SpotifyTrack struct {
+	type PlaylistTrack struct {
 		ID      string          `json:"id"`
 		Name    string          `json:"name"`
 		Artists []SpotifyArtist `json:"artists"`
 	}
 
 	type Item struct {
-		Track   SpotifyTrack `json:"track"`
-		AddedAt string       `json:"added_at"`
+		Track   PlaylistTrack `json:"track"`
+		AddedAt string        `json:"added_at"`
 	}
 
 	type Response struct {
@@ -211,37 +212,12 @@ func (s *SyncService) syncPlaylistTracks(playlistID uuid.UUID, spotifyPlaylistID
 
 		for _, item := range res.Items {
 			if item.Track.ID == "" {
-				continue // skip local tracks
+				continue // local or unavailable track
 			}
 
-			normalized := normalize(item.Track.Name)
-			track := models.Track{
-				Name:       item.Track.Name,
-				Normalized: normalized,
-			}
-			if err := s.DB.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "normalized"}},
-				DoUpdates: clause.AssignmentColumns([]string{"name"}),
-			}).Create(&track).Error; err != nil {
+			trackID, err := s.imp.ImportTrack(toIngestTrack(item.Track.ID, item.Track.Name, item.Track.Artists))
+			if err != nil {
 				return err
-			}
-
-			for _, a := range item.Track.Artists {
-				artistNorm := normalize(a.Name)
-				artist := models.Artist{
-					Name:           a.Name,
-					NormalizedName: artistNorm,
-					SpotifyID:      &a.ID,
-				}
-				s.DB.Where("normalized_name = ?", artistNorm).
-					Assign(models.Artist{SpotifyID: &a.ID}).
-					FirstOrCreate(&artist)
-
-				s.DB.Clauses(clause.OnConflict{DoNothing: true}).
-					Create(&models.TrackArtist{
-						TrackID:  track.ID,
-						ArtistID: artist.ID,
-					})
 			}
 
 			addedAt := time.Now()
@@ -252,24 +228,20 @@ func (s *SyncService) syncPlaylistTracks(playlistID uuid.UUID, spotifyPlaylistID
 			s.DB.Clauses(clause.OnConflict{DoNothing: true}).
 				Create(&models.PlaylistTrack{
 					PlaylistID: playlistID,
-					TrackID:    track.ID,
+					TrackID:    trackID,
 					AddedAt:    addedAt,
 				})
 
 			s.DB.Create(&models.UserTrackEvent{
 				UserID:  s.UserID,
-				TrackID: track.ID,
+				TrackID: trackID,
 				Type:    "import",
 				Source:  "spotify",
 				Weight:  1.0,
 			})
 		}
 
-		if res.Next != nil {
-			path = strings.TrimPrefix(*res.Next, "https://api.spotify.com/v1")
-		} else {
-			path = ""
-		}
+		path = s.nextPath(res.Next)
 	}
 
 	return nil
@@ -279,20 +251,15 @@ func (s *SyncService) syncPlaylistTracks(playlistID uuid.UUID, spotifyPlaylistID
 // Recently Played
 // ------------------------------------------------------------------
 func (s *SyncService) syncRecentlyPlayed() error {
-	type SpotifyArtist struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}
-
-	type SpotifyTrack struct {
+	type PlayedTrack struct {
 		ID      string          `json:"id"`
 		Name    string          `json:"name"`
 		Artists []SpotifyArtist `json:"artists"`
 	}
 
 	type Item struct {
-		Track    SpotifyTrack `json:"track"`
-		PlayedAt string       `json:"played_at"`
+		Track    PlayedTrack `json:"track"`
+		PlayedAt string      `json:"played_at"`
 	}
 
 	type Response struct {
@@ -319,41 +286,25 @@ func (s *SyncService) syncRecentlyPlayed() error {
 	}
 
 	for rank, item := range res.Items {
-		normalized := normalize(item.Track.Name)
-		track := models.Track{
-			Name:       item.Track.Name,
-			Normalized: normalized,
+		if item.Track.ID == "" {
+			continue
 		}
-		s.DB.Where("normalized = ?", normalized).FirstOrCreate(&track)
 
-		for _, a := range item.Track.Artists {
-			artistNorm := normalize(a.Name)
-			artist := models.Artist{
-				Name:           a.Name,
-				NormalizedName: artistNorm,
-				SpotifyID:      &a.ID,
-			}
-			s.DB.Where("normalized_name = ?", artistNorm).
-				Assign(models.Artist{SpotifyID: &a.ID}).
-				FirstOrCreate(&artist)
-
-			s.DB.Clauses(clause.OnConflict{DoNothing: true}).
-				Create(&models.TrackArtist{
-					TrackID:  track.ID,
-					ArtistID: artist.ID,
-				})
+		trackID, err := s.imp.ImportTrack(toIngestTrack(item.Track.ID, item.Track.Name, item.Track.Artists))
+		if err != nil {
+			return err
 		}
 
 		s.DB.Clauses(clause.OnConflict{DoNothing: true}).
 			Create(&models.SnapshotTrack{
 				SnapshotID: snapshot.ID,
-				TrackID:    track.ID,
+				TrackID:    trackID,
 				Rank:       rank + 1,
 			})
 
 		s.DB.Create(&models.UserTrackEvent{
 			UserID:  s.UserID,
-			TrackID: track.ID,
+			TrackID: trackID,
 			Type:    "play",
 			Source:  "spotify",
 			Weight:  1.0,
@@ -364,8 +315,15 @@ func (s *SyncService) syncRecentlyPlayed() error {
 }
 
 // ------------------------------------------------------------------
-// HTTP helper
+// HTTP helpers
 // ------------------------------------------------------------------
+func (s *SyncService) nextPath(next *string) string {
+	if next == nil {
+		return ""
+	}
+	return strings.TrimPrefix(*next, "https://api.spotify.com/v1")
+}
+
 func (s *SyncService) get(path string, out interface{}) error {
 	req, err := http.NewRequest("GET", "https://api.spotify.com/v1"+path, nil)
 	if err != nil {
@@ -385,8 +343,4 @@ func (s *SyncService) get(path string, out interface{}) error {
 	}
 
 	return json.NewDecoder(resp.Body).Decode(out)
-}
-
-func normalize(s string) string {
-	return strings.ToLower(strings.TrimSpace(s))
 }

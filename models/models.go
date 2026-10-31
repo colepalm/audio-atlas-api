@@ -42,7 +42,7 @@ type Artist struct {
 type ArtistGenre struct {
 	ArtistID uuid.UUID `gorm:"type:uuid;primaryKey"`
 	Genre    string    `gorm:"primaryKey"`
-	Source   string    // spotify, musicbrainz, manual
+	Source   string
 }
 
 type UserArtist struct {
@@ -136,7 +136,8 @@ type PlaylistTrack struct {
 type Track struct {
 	ID            uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
 	Name          string    `gorm:"not null"`
-	Normalized    string    `gorm:"uniqueIndex;not null"`
+	Normalized    string    `gorm:"index;not null"`
+	CanonicalKey  string    `gorm:"uniqueIndex;not null"` // normalized title + "|" + primary artist
 	MusicbrainzID *string
 	CreatedAt     time.Time
 
@@ -175,6 +176,13 @@ type DataImport struct {
 	Status      string    // pending, processing, complete, failed
 	RecordCount int
 	CreatedAt   time.Time
+}
+
+type ExternalID struct {
+	Provider   string    `gorm:"primaryKey"` // spotify, lastfm, musicbrainz
+	EntityType string    `gorm:"primaryKey"` // artist, track
+	ExternalID string    `gorm:"primaryKey"`
+	EntityID   uuid.UUID `gorm:"type:uuid;index;not null"`
 }
 
 type RefreshToken struct {
