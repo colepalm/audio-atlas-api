@@ -113,15 +113,15 @@ type SnapshotArtist struct {
 }
 
 type Playlist struct {
-	ID         uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
-	UserID     uuid.UUID `gorm:"type:uuid;index;not null"`
-	Name       string    `gorm:"not null"`
-	Source     string    `gorm:"not null"` // spotify, manual, etc
-	ExternalID *string
-	CreatedAt  time.Time
+	ID          uuid.UUID `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()"`
+	UserID      uuid.UUID `gorm:"type:uuid;index;not null"`
+	Name        string    `gorm:"not null"`
+	Source      string    `gorm:"not null"`
+	ExternalID  *string
+	SyncVersion *string // provider's change marker; skip the playlist when unchanged
+	CreatedAt   time.Time
 
-	User   User    `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
-	Tracks []Track `gorm:"many2many:playlist_tracks;"`
+	User User `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 }
 
 type PlaylistTrack struct {
