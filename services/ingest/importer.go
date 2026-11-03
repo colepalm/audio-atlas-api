@@ -21,6 +21,9 @@ type Track struct {
 	ExternalID string   // optional
 }
 
+// batchSize keeps bulk inserts well under Postgres's 65535 bind-parameter limit.
+const batchSize = 500
+
 type Importer struct {
 	db       *gorm.DB
 	provider string
@@ -47,89 +50,169 @@ func Normalize(s string) string {
 
 // ImportArtist returns the canonical artist ID, creating the row if needed.
 func (i *Importer) ImportArtist(a Artist) (uuid.UUID, error) {
-	key := Normalize(a.Name)
+	ids, err := i.ImportArtists([]Artist{a})
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return ids[0], nil
+}
 
-	id, ok := i.artists[key]
-	if !ok {
-		artist := models.Artist{Name: a.Name, NormalizedName: key}
+// ImportArtists returns canonical artist IDs in the same order as as, creating
+// any missing rows in bulk.
+func (i *Importer) ImportArtists(as []Artist) ([]uuid.UUID, error) {
+	var missing []models.Artist
+	queued := make(map[string]bool)
+	for _, a := range as {
+		key := Normalize(a.Name)
+		if _, ok := i.artists[key]; ok || queued[key] {
+			continue
+		}
+		queued[key] = true
+		missing = append(missing, models.Artist{Name: a.Name, NormalizedName: key})
+	}
+
+	if len(missing) > 0 {
 		// The no-op update makes Postgres return the existing row's ID on conflict.
 		if err := i.db.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "normalized_name"}},
 			DoUpdates: clause.AssignmentColumns([]string{"normalized_name"}),
-		}).Create(&artist).Error; err != nil {
-			return uuid.Nil, err
+		}).CreateInBatches(&missing, batchSize).Error; err != nil {
+			return nil, err
 		}
-		id = artist.ID
-		i.artists[key] = id
+		for _, m := range missing {
+			i.artists[m.NormalizedName] = m.ID
+		}
 	}
 
-	if err := i.link("artist", a.ExternalID, id); err != nil {
-		return uuid.Nil, err
+	ids := make([]uuid.UUID, len(as))
+	var links []models.ExternalID
+	for n, a := range as {
+		ids[n] = i.artists[Normalize(a.Name)]
+		links = i.appendLink(links, "artist", a.ExternalID, ids[n])
 	}
-	return id, nil
+	if err := i.saveLinks(links); err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 // ImportTrack returns the canonical track ID. A track is identified by its
 // normalized title plus its primary artist, so "Shame" by two different
 // artists are two tracks, and the same song arriving from two providers is one.
 func (i *Importer) ImportTrack(t Track) (uuid.UUID, error) {
+	ids, err := i.ImportTracks([]Track{t})
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return ids[0], nil
+}
+
+// ImportTracks returns canonical track IDs in the same order as ts, creating
+// any missing tracks, artists and track_artists rows in bulk.
+func (i *Importer) ImportTracks(ts []Track) ([]uuid.UUID, error) {
+	keys := make([]string, len(ts))
+	var missing []models.Track
+	var missingSrc []Track
+	queued := make(map[string]bool)
+	for n, t := range ts {
+		keys[n] = trackKey(t)
+		if _, ok := i.tracks[keys[n]]; ok || queued[keys[n]] {
+			continue
+		}
+		queued[keys[n]] = true
+		missing = append(missing, models.Track{
+			Name:         t.Title,
+			Normalized:   Normalize(t.Title),
+			CanonicalKey: keys[n],
+		})
+		missingSrc = append(missingSrc, t)
+	}
+
+	if len(missing) > 0 {
+		if err := i.db.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "canonical_key"}},
+			DoUpdates: clause.AssignmentColumns([]string{"canonical_key"}),
+		}).CreateInBatches(&missing, batchSize).Error; err != nil {
+			return nil, err
+		}
+
+		var credits []Artist
+		for _, t := range missingSrc {
+			credits = append(credits, t.Artists...)
+		}
+		artistIDs, err := i.ImportArtists(credits)
+		if err != nil {
+			return nil, err
+		}
+
+		var joins []models.TrackArtist
+		n := 0
+		for k, t := range missingSrc {
+			for range t.Artists {
+				joins = append(joins, models.TrackArtist{TrackID: missing[k].ID, ArtistID: artistIDs[n]})
+				n++
+			}
+		}
+		if len(joins) > 0 {
+			if err := i.db.Clauses(clause.OnConflict{DoNothing: true}).
+				CreateInBatches(&joins, batchSize).Error; err != nil {
+				return nil, err
+			}
+		}
+
+		for _, m := range missing {
+			i.tracks[m.CanonicalKey] = m.ID
+		}
+	}
+
+	ids := make([]uuid.UUID, len(ts))
+	var links []models.ExternalID
+	for n, t := range ts {
+		ids[n] = i.tracks[keys[n]]
+		links = i.appendLink(links, "track", t.ExternalID, ids[n])
+	}
+	if err := i.saveLinks(links); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+func trackKey(t Track) string {
 	primary := ""
 	if len(t.Artists) > 0 {
 		primary = t.Artists[0].Name
 	}
-	key := Normalize(t.Title) + "|" + Normalize(primary)
-
-	id, ok := i.tracks[key]
-	if !ok {
-		track := models.Track{
-			Name:         t.Title,
-			Normalized:   Normalize(t.Title),
-			CanonicalKey: key,
-		}
-		if err := i.db.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "canonical_key"}},
-			DoUpdates: clause.AssignmentColumns([]string{"canonical_key"}),
-		}).Create(&track).Error; err != nil {
-			return uuid.Nil, err
-		}
-		id = track.ID
-
-		for _, a := range t.Artists {
-			artistID, err := i.ImportArtist(a)
-			if err != nil {
-				return uuid.Nil, err
-			}
-			if err := i.db.Clauses(clause.OnConflict{DoNothing: true}).
-				Create(&models.TrackArtist{TrackID: id, ArtistID: artistID}).Error; err != nil {
-				return uuid.Nil, err
-			}
-		}
-		i.tracks[key] = id
-	}
-
-	if err := i.link("track", t.ExternalID, id); err != nil {
-		return uuid.Nil, err
-	}
-	return id, nil
+	return Normalize(t.Title) + "|" + Normalize(primary)
 }
 
-// link records that this provider knows the entity under externalID.
-func (i *Importer) link(entityType, externalID string, entityID uuid.UUID) error {
-	if externalID == "" {
-		return nil
-	}
+// appendLink queues a record that this provider knows the entity under
+// externalID, skipping ones already recorded or queued.
+func (i *Importer) appendLink(links []models.ExternalID, entityType, externalID string, entityID uuid.UUID) []models.ExternalID {
 	k := entityType + ":" + externalID
-	if i.linked[k] {
-		return nil
+	if externalID == "" || i.linked[k] {
+		return links
 	}
-	if err := i.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&models.ExternalID{
+	// Marked now so duplicates within a batch are skipped; saveLinks clears
+	// these again if the insert fails.
+	i.linked[k] = true
+	return append(links, models.ExternalID{
 		Provider:   i.provider,
 		EntityType: entityType,
 		ExternalID: externalID,
 		EntityID:   entityID,
-	}).Error; err != nil {
+	})
+}
+
+func (i *Importer) saveLinks(links []models.ExternalID) error {
+	if len(links) == 0 {
+		return nil
+	}
+	if err := i.db.Clauses(clause.OnConflict{DoNothing: true}).
+		CreateInBatches(&links, batchSize).Error; err != nil {
+		for _, l := range links {
+			delete(i.linked, l.EntityType+":"+l.ExternalID)
+		}
 		return err
 	}
-	i.linked[k] = true
 	return nil
 }

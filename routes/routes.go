@@ -66,6 +66,7 @@ func SetupRoutes(cfg *config.Config) *gin.Engine {
 			spotifyAuth.Use(authMiddleware)
 			{
 				spotifyAuth.GET("/connect", spotifyHandler.Connect)
+				spotifyAuth.POST("/sync", spotifyHandler.Sync)
 			}
 		}
 

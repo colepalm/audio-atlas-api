@@ -1,0 +1,20 @@
+# Local Postgres for development. Data persists in the atlas-pgdata volume.
+#   docker compose up -d
+#   DATABASE_URL="postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable" go run main.go
+services:
+  postgres:
+    image: postgres:16
+    container_name: atlas-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - atlas-pgdata:/var/lib/postgresql/data
+      # Runs only when the volume is first created.
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+volumes:
+  atlas-pgdata:
+    name: atlas-pgdata

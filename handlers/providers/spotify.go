@@ -1,9 +1,13 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -11,13 +15,20 @@ import (
 	"gorm.io/gorm"
 
 	"audio-atlas-api/models"
+	"audio-atlas-api/services/providerauth"
 	"audio-atlas-api/services/spotify"
 )
+
+// syncTimeout caps a single background sync so a stuck request can't hold the
+// per-user lock forever.
+const syncTimeout = 15 * time.Minute
 
 type SpotifyHandler struct {
 	OAuthConfig *oauth2.Config
 	DB          *gorm.DB
 	FrontendURL string
+
+	syncing sync.Map // user ID -> struct{}; one sync per user at a time
 }
 
 func NewSpotifyHandler(cfg *oauth2.Config, db *gorm.DB, frontendURL string) *SpotifyHandler {
@@ -91,10 +102,54 @@ func (h *SpotifyHandler) Callback(c *gin.Context) {
 	}
 
 	// Run sync in background so user isn't waiting
-	go func() {
-		sync := spotify.NewSyncService(h.DB, userID, token.AccessToken)
-		sync.Run()
-	}()
+	h.startSync(userID, &account)
 
 	c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?spotify=connected", h.FrontendURL))
+}
+
+// Sync POST /api/v1/providers/spotify/sync re-runs the sync for an already
+// connected account. The access token is refreshed if it has expired.
+func (h *SpotifyHandler) Sync(c *gin.Context) {
+	userID := c.MustGet("userID").(uuid.UUID)
+
+	var account models.ProviderAccount
+	if err := h.DB.Where("user_id = ? AND provider = ?", userID, "spotify").First(&account).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "spotify not connected"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if !h.startSync(userID, &account) {
+		c.JSON(http.StatusConflict, gin.H{"error": "sync already in progress"})
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"status": "sync started"})
+}
+
+// startSync runs a sync in the background and reports false if one is already
+// running for this user.
+func (h *SpotifyHandler) startSync(userID uuid.UUID, account *models.ProviderAccount) bool {
+	if _, running := h.syncing.LoadOrStore(userID, struct{}{}); running {
+		return false
+	}
+
+	go func() {
+		defer h.syncing.Delete(userID)
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[SpotifySync] panic for user %s: %v", userID, r)
+			}
+		}()
+
+		// Not the request context: it's cancelled as soon as the response is sent.
+		ctx, cancel := context.WithTimeout(context.Background(), syncTimeout)
+		defer cancel()
+
+		client := providerauth.Client(ctx, h.DB, h.OAuthConfig, account)
+		spotify.NewSyncService(h.DB, userID, client).Run(ctx)
+	}()
+	return true
 }
